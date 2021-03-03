@@ -8,11 +8,9 @@
 
 static int null_transmit(struct net_device *dev, uint16_t type,
                          const uint8_t *data, size_t len, const void *dst) {
-  // debugf("dev=%s, type=%s(0x%04x), len=%zu", dev->name,
-  // net_protocol_name(type),
-  //        type, len);
+  debugf("dev=%s, type=%s, len=%zu", dev->name, type, len);
   debugdump(data, len);
-  /* drop data */
+  // drop data
   return 0;
 }
 
@@ -22,7 +20,6 @@ static struct net_device_ops null_ops = {
 };
 
 struct net_device *null_init(void) {
-	debugf("hi, null_init");
   struct net_device *dev;
   dev = net_device_alloc();
   if (!dev) {

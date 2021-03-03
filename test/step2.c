@@ -3,7 +3,7 @@
 #include <stdio.h>
 // #include <unistd.h>
 
-#include "driver/null.h"
+#include "driver/loopback.h"
 #include "net.h"
 #include "test.h"
 #include "util.h"
@@ -22,9 +22,9 @@ int main(int argc, char *argv[]) {
     errorf("net_init() failed");
     return -1;
   }
-  dev = null_init();
+  dev = loopback_init();
   if (!dev) {
-    errorf("nuill_init() failed");
+    errorf("loopback_init() failed");
     return -1;
   }
   if (net_run() == -1) {
