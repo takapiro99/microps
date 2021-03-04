@@ -24,7 +24,7 @@ int main(int argc, char *argv[]) {
   }
   dev = null_init();
   if (!dev) {
-    errorf("nuill_init() failed");
+    errorf("null_init() failed");
     return -1;
   }
   if (net_run() == -1) {
