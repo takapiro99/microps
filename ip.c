@@ -4,6 +4,8 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
+#include <pthread.h>
 
 #include "net.h"
 #include "util.h"
@@ -24,6 +26,10 @@ struct ip_hdr {
 
 const ip_addr_t IP_ADDR_ANY = 0x00000000;        // 0.0.0.0
 const ip_addr_t IP_ADDR_BROADCAST = 0xffffffff;  // 255.255.255.255
+
+/* NOTE: if you want to add/delete the entries after net_run(), you need to
+ * protect these lists with a mutex. */
+static struct ip_iface *ifaces;
 
 int ip_addr_pton(const char *p, ip_addr_t *n) {
   char *sp, *ep;
@@ -86,6 +92,61 @@ void ip_dump(const uint8_t *data, size_t len) {
   // return;
 }
 
+struct ip_iface *ip_iface_alloc(const char *unicast, const char *netmask) {
+  struct ip_iface *iface;
+  iface = calloc(1, sizeof(*iface));
+  if (!iface) {
+    errorf("failed to calloc()");
+    return NULL;
+  }
+  NET_IFACE(iface)->family = NET_IFACE_FAMILY_IP;
+  // set iface->unicast?
+  if (ip_addr_pton(unicast, &iface->unicast) == -1) {
+    errorf("ip_addr_pton() failure, addr=%s", unicast);
+    free(iface);
+    return NULL;
+  }
+  // set iface->netmask?
+  if (ip_addr_pton(netmask, &iface->netmask) == -1) {
+    errorf("ip_addr_pton() failure, addr=%s", netmask);
+    free(iface);
+    return NULL;
+  }
+  // set iface -> broadcast
+  iface->broadcast = (iface->unicast & iface->netmask) | ~iface->netmask;
+  return iface;
+}
+
+/* NOTE: must not be call after net_run() */
+int ip_iface_register(struct net_device *dev, struct ip_iface *iface) {
+  char addr1[IP_ADDR_STR_LEN];
+  char addr2[IP_ADDR_STR_LEN];
+  char addr3[IP_ADDR_STR_LEN];
+  // register iface to dev
+  // if error, raise
+  if (net_device_add_iface(dev, NET_IFACE(iface)) == -1) {
+    errorf("couldn't register iface to dev");
+    return -1;
+  }
+  // push iface to ifaces
+  iface->next = ifaces;
+  ifaces = iface;
+  infof("registered: dev=%s, unicast=%s, netmask=%s, broadcast=%s", dev->name,
+        ip_addr_ntop(iface->unicast, addr1, sizeof(addr1)),
+        ip_addr_ntop(iface->netmask, addr2, sizeof(addr2)),
+        ip_addr_ntop(iface->broadcast, addr3, sizeof(addr3)));
+}
+
+struct ip_iface *ip_iface_select(ip_addr_t addr) {
+  struct ip_iface *entry = NULL;
+  for (entry = ifaces; entry; entry = entry->next) {
+    if (entry->unicast == addr) {
+      break;
+    }
+  }
+  return entry;
+}
+
 static void ip_input(const uint8_t *data, size_t len, struct net_device *dev) {
   struct ip_hdr *hdr;
   uint16_t offset;
@@ -119,15 +180,50 @@ static void ip_input(const uint8_t *data, size_t len, struct net_device *dev) {
     errorf("checksum failed");
     return;
   }
+  struct ip_iface *iface;
+  char addr[IP_ADDR_STR_LEN];
   offset = ntoh16(hdr->offset);
   if (offset & 0x2000 || offset & 0x1fff) {
     errorf("we don't support fragments, sorry");
     return;
   }
-  debugf("dev=%s, protocol=%u, total length=%u", dev->name, hdr->protocol,
-         hdr->total);
-  ip_dump(data, hdr->total);
+  // get ip_iface
+  iface = (struct ip_iface *)net_device_get_iface(dev, NET_IFACE_FAMILY_IP);
+  if (!iface) {
+    errorf("no iface");
+    return;
+  }
+  // check dst ip
+  if (hdr->dst != iface->unicast) {
+    if (hdr->dst != iface->broadcast && hdr->dst != IP_ADDR_BROADCAST) {
+      // not for you
+      return;
+    }
+  }
+  debugf("dev=%s, iface=%s, protocol=%u, total=%u", dev->name,
+         ip_addr_ntop(iface->unicast, addr, sizeof(addr)), hdr->protocol,
+         header_total_length);
+  ip_dump(data, header_total_length);
 }
+
+static int ip_output_device(struct ip_iface *iface, const uint8_t *data, size_t len, ip_addr_t dst){
+
+}
+
+static ssize_t ip_output_core(struct ip_iface *iface, uint8_t protocol, const uint8_t *data, size_t len, ip_addr_t src, ip_addr_t dst, uint16_t id, uint16_t offset){
+
+}
+
+static uint16_t ip_generate_id(void){
+  static pthread_mute_t mutex = PTHREAD_MUTEX_INITIALIZERl;
+  static uint16_t id = 128;
+  uint16_t ret;
+  pthread_mutex_lock(&mutex);
+  ret = id++;
+  pthread_mutex_unlock(&mutex);
+  return ret;
+}
+
 
 int ip_init(void) {
   if (net_protocol_register(NET_PROTOCOL_TYPE_IP, ip_input) == -1) {

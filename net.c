@@ -86,6 +86,34 @@ static int net_device_close(struct net_device *dev) {
   return 0;
 }
 
+/* NOTE: must not be call after net_run() */
+int net_device_add_iface(struct net_device *dev, struct net_iface *iface) {
+  struct net_iface *entry;
+
+  for (entry = dev->ifaces; entry; entry = entry->next) {
+    if (entry->family == iface->family) {
+      errorf("this iface already exists. dev=%s, family=%d", dev->name,
+             entry->family);
+      return -1;
+    }
+  }
+  iface->dev = dev;
+  // デバイスのインターフェイスリストの先頭にifaceを挿入
+  iface->next = dev->ifaces;
+  dev->ifaces = iface;
+  return 0;
+}
+
+struct net_iface *net_device_get_iface(struct net_device *dev, int family) {
+  struct net_iface *entry = NULL;
+  for (entry = dev->ifaces; entry; entry->next) {
+    if (entry->family == family) {
+      break;
+    }
+  }
+  return entry;
+}
+
 int net_device_output(struct net_device *dev, uint16_t type,
                       const uint8_t *data, size_t len, const void *dst) {
   if (!NET_DEVICE_IS_UP(dev)) {
@@ -176,7 +204,7 @@ static void *net_thread(void *arg) {
   struct net_protocol *proto;
   struct net_protocol_queue_entry *entry;
 
-  while(!terminate) {
+  while (!terminate) {
     count = 0;
     for (dev = devices; dev; dev = dev->next) {
       // polling devices
