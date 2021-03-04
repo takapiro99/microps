@@ -7,9 +7,9 @@
 #include <pthread.h>
 #include <signal.h>
 
+#include "icmp.h"
 #include "ip.h"
 #include "net.h"
-#include "icmp.h"
 #include "util.h"
 
 struct net_protocol {
