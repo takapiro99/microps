@@ -4,6 +4,7 @@
 		"stdio.h": "c",
 		"stdlib.h": "c",
 		"limits.h": "c",
-		"vcruntime.h": "c"
+		"vcruntime.h": "c",
+		"stdint.h": "c"
 	}
 }

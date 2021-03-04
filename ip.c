@@ -24,12 +24,20 @@ struct ip_hdr {
   uint8_t options[0];
 };
 
+struct ip_protocol {
+  struct ip_protocol *next;
+  uint8_t type;
+  void (*handler)(const uint8_t *data, size_t len, ip_addr_t src, ip_addr_t dst,
+                  struct ip_iface *iface);
+};
+
 const ip_addr_t IP_ADDR_ANY = 0x00000000;        // 0.0.0.0
 const ip_addr_t IP_ADDR_BROADCAST = 0xffffffff;  // 255.255.255.255
 
 /* NOTE: if you want to add/delete the entries after net_run(), you need to
  * protect these lists with a mutex. */
 static struct ip_iface *ifaces;
+static struct ip_protocol *protocols;
 
 int ip_addr_pton(const char *p, ip_addr_t *n) {
   char *sp, *ep;
@@ -204,6 +212,17 @@ static void ip_input(const uint8_t *data, size_t len, struct net_device *dev) {
          ip_addr_ntop(iface->unicast, addr, sizeof(addr)), hdr->protocol,
          header_total_length);
   ip_dump(data, header_total_length);
+  // search protocol
+  struct ip_protocol *proto;
+  for (proto = protocols; proto; proto = proto->next) {
+    if (proto->type == hdr->protocol) {
+      proto->handler((uint8_t *)hdr + header_header_length,
+                     header_total_length - header_header_length, hdr->src,
+                     hdr->dst, iface);
+      return;
+    }
+  }
+  // protocol not supported
 }
 
 static int ip_output_device(struct ip_iface *iface, const uint8_t *data,
@@ -298,6 +317,33 @@ ssize_t ip_output(uint8_t protocol, const uint8_t *data, size_t len,
     return -1;
   }
   return len;
+}
+
+/* NOTE: must not be call after net_run() */
+int ip_protocol_register(uint8_t type,
+                         void (*handler)(const uint8_t *data, size_t len,
+                                         ip_addr_t src, ip_addr_t dst,
+                                         struct ip_iface *iface)) {
+  struct ip_protocol *proto;
+  // check all protocols if registered
+  for (proto = protocols; proto; proto = proto->next) {
+    if (proto->type == type) {
+      errorf("\"%u\" already exists.", type);
+      return -1;
+    }
+  }
+  // register each protocol
+  proto = calloc(1, sizeof(*proto));
+  if (!proto) {
+    errorf("calloc() failed");
+    return -1;
+  }
+  proto->type = type;
+  proto->handler = handler;
+  proto->next = protocols;
+  protocols = proto;
+  infof("new protocol registered: %u", type);
+  return 0;
 }
 
 int ip_init(void) {
